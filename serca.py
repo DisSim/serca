@@ -91,7 +91,7 @@ output: {'datatype': datatype, 'output': (the output from the task)}
 @routes.route("/get/task/<operation>/<offset>")
 def newtask(operation, offset):
     secret = request.headers.get('authorization')
-    return q_get(operation, offset, secret)
+    return json.dumps(q_get(operation, offset, secret))
 
 """
 CORS
