@@ -1,59 +1,107 @@
 import flask
 import yaml
-import pika
+import kafka # https://github.com/dpkp/kafka-python
+import os
+import binascii
+import json
 
 # read config
 with open('serca.yml') as config:
     cnf = yaml.load(config)
     queue_cnf = cnf.get('queue', {})
-
-# queue (rabitmq) connection
-q_creds = pika.credentials.PlainCredentials(queue_cnf.get('username', 'guest'),
-                                            queue_cnf.get('password', 'guest'))
-q_params = pika.ConnectionParameters(queue_cnf.get('host', 'localhost'),
-                                     queue_cnf.get('port', 5672),
-                                     queue_cnf.get('path', '/'),
-                                     q_creds)
-# Helper functions
 """
 Add to the queue.
 the operation is the queue channel name
 """
 def q_add(body, operation):
-    with pika.BlockingConnection(q_params) as connection:
-        channel = connection.channel()
-        channel.queue_declare(queue=operation)
-        channel.basic_publish(routing_key=operation, body=body)
+    secret = binascii.b2a_hex(queue_cnf.get('secret_len', 32))
+    body['_secret'] = secret
+    body['_status'] = new
+    with kafka.KafkaProducer(
+        bootstrap_servers=queue_cnf.get("host", "localhost"),
+        value_serializer=lambda v: json.dumps(v).encode(queue_cnf.get("encoding",'utf-8'))) as queue:
+        future = queue.send(operation, body)
+        res = future.get(timeout=queue_cnf['timeout', 10])
+        return {'topic': res.topic, 'partition': res.partition, 'offset': res.offset, '_secret': secret}
 
 """
-Task status from queue
+Get status from queue
 """
 # TODO
+def q_status(operation, offset, secret):
+    with kafka.KafkaConsumer(operation,
+                         bootstrap_servers=queue_cnf.get("host", "localhost")) as queue:
+        result = [message if (message.topic.decode(queue_cnf.get("encoding",'utf-8')) == operation and message.offet.decode(queue_cnf.get("encoding",'utf-8')) == offset) else '' for message in queue]
+        result = filter(lambda x: x, result)
+        if len(result) == 0:
+            return {}
+        else:
+            res = result[0]
+            if res_secret == secret:
+                return res['_status'].decode(queue_cnf.get("encoding",'utf-8'))
+            else:
+                return {}
 
 """
 Get from queue iff key matches
 """
 # TODO
+def q_get(operation, offset, secret):
+    with kafka.KafkaConsumer(operation,
+                         bootstrap_servers=queue_cnf.get("host", "localhost")) as queue:
+        result = [message if (message.topic.decode(
+            queue_cnf.get("encoding",'utf-8'))==operation
+               and message.offet.decode(queue_cnf.get("encoding",'utf-8'))==offset) else '' for message in queue]
+        result = filter(lambda x: x, result)
+        if len(result) == 0:
+            return {}
+        else:
+            res = result[0]
+            res.update({n: res[n].decode(queue_cnf.get("encoding",'utf-8')) for n in res.keys()})
+            res_secret = res.pop('_secret', None)
+            if res_secret == secret:
+                return res
+            else:
+                return {}
 
 # Routes
-
+routes = flask.Flask(__name__)
 """
-Post a task
+POST a task
 input: {'function': function, 'params': [...params]}
 output: {'id': #, 'key': (alphanumeric key)}
 """
-# TODO
+@routes.route("/new/task/<operation>", methods=['POST'])
+def newtask(operation):
+    return json.dumps(q_add(operation, request.data))
 
 """
 Get task status
 input: id in url
-output: {'started': epochtime, 'status': status}
+output: {'status': status}
 """
-# TODO
+@routes.route("/status/task/<operation>/<offset>")
+def taskstatus(operation, offset):
+    return q_status(operation, offset)
 
 """
-Post a task
+Get task result
 input: id in url, key (from post step return) as authentication in header
 output: {'datatype': datatype, 'output': (the output from the task)}
 """
-# TODO
+@routes.route("/get/task/<operation>/<offset>")
+def taskget(operation, offset):
+    secret = request.headers.get('authorization')
+    return json.dumps(q_get(operation, offset, secret))
+
+"""
+CORS
+"""
+@routes.after_request
+def after_request(response):
+  response.headers.add('Access-Control-Allow-Origin', '*')
+  return response
+
+
+if __name__ == '__main__':
+    routes.run()
