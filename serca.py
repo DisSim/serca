@@ -15,6 +15,7 @@ the operation is the queue channel name
 def q_add(body, operation):
     secret = secrets.token_hex(queue_cnf.get('secret_len', 32))
     body['_secret'] = secret
+    body['_status'] = new
     with kafka.KafkaProducer(
         bootstrap_servers=queue_cnf.get("host", "localhost"),
         value_serializer=lambda v: json.dumps(v).encode(queue_cnf.get("encoding",'utf-8'))) as queue:
