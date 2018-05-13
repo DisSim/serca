@@ -1,7 +1,8 @@
 import flask
 import yaml
 import kafka # https://github.com/dpkp/kafka-python
-import secrets
+import os
+import binascii
 import json
 
 # read config
@@ -13,15 +14,15 @@ Add to the queue.
 the operation is the queue channel name
 """
 def q_add(body, operation):
-    secret = secrets.token_hex(queue_cnf.get('secret_len', 32))
+    secret = binascii.b2a_hex(queue_cnf.get('secret_len', 32))
     body['_secret'] = secret
     body['_status'] = new
     with kafka.KafkaProducer(
         bootstrap_servers=queue_cnf.get("host", "localhost"),
         value_serializer=lambda v: json.dumps(v).encode(queue_cnf.get("encoding",'utf-8'))) as queue:
-    future = queue.send(operation, body)
-    res = future.get(timeout=queue_cnf['timeout', 10])
-    return {'topic': res.topic, 'partition': res.partition, 'offset': res.offset, '_secret': secret}
+        future = queue.send(operation, body)
+        res = future.get(timeout=queue_cnf['timeout', 10])
+        return {'topic': res.topic, 'partition': res.partition, 'offset': res.offset, '_secret': secret}
 
 """
 Get status from queue
@@ -30,9 +31,8 @@ Get status from queue
 def q_status(operation, offset, secret):
     with kafka.KafkaConsumer(operation,
                          bootstrap_servers=queue_cnf.get("host", "localhost")) as queue:
-        result = [message in queue if message.topic.decode(
-            queue_cnf.get("encoding",'utf-8'))==operation
-               and message.offet.decode(queue_cnf.get("encoding",'utf-8'))==offset]
+        result = [message if (message.topic.decode(queue_cnf.get("encoding",'utf-8')) == operation and message.offet.decode(queue_cnf.get("encoding",'utf-8')) == offset) else '' for message in queue]
+        result = filter(lambda x: x, result)
         if len(result) == 0:
             return {}
         else:
@@ -49,9 +49,10 @@ Get from queue iff key matches
 def q_get(operation, offset, secret):
     with kafka.KafkaConsumer(operation,
                          bootstrap_servers=queue_cnf.get("host", "localhost")) as queue:
-        result = [message in queue if message.topic.decode(
+        result = [message if (message.topic.decode(
             queue_cnf.get("encoding",'utf-8'))==operation
-               and message.offet.decode(queue_cnf.get("encoding",'utf-8'))==offset]
+               and message.offet.decode(queue_cnf.get("encoding",'utf-8'))==offset) else '' for message in queue]
+        result = filter(lambda x: x, result)
         if len(result) == 0:
             return {}
         else:
