@@ -65,7 +65,7 @@ def q_get(operation, offset, secret):
                 return {}
 
 # Routes
-routes = Flask(__name__)
+routes = flask.Flask(__name__)
 """
 POST a task
 input: {'function': function, 'params': [...params]}
@@ -81,7 +81,7 @@ input: id in url
 output: {'status': status}
 """
 @routes.route("/status/task/<operation>/<offset>")
-def newtask(operation, offset):
+def taskstatus(operation, offset):
     return q_status(operation, offset)
 
 """
@@ -90,7 +90,7 @@ input: id in url, key (from post step return) as authentication in header
 output: {'datatype': datatype, 'output': (the output from the task)}
 """
 @routes.route("/get/task/<operation>/<offset>")
-def newtask(operation, offset):
+def taskget(operation, offset):
     secret = request.headers.get('authorization')
     return json.dumps(q_get(operation, offset, secret))
 
@@ -104,4 +104,4 @@ def after_request(response):
 
 
 if __name__ == '__main__':
-    app.run()
+    routes.run()
