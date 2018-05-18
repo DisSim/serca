@@ -25,27 +25,8 @@ def q_add(body, operation):
         return {'topic': res.topic, 'partition': res.partition, 'offset': res.offset, '_secret': secret}
 
 """
-Get status from queue
+Get result/record from queue iff key matches, else status
 """
-# TODO
-def q_status(operation, offset, secret):
-    with kafka.KafkaConsumer(operation,
-                         bootstrap_servers=queue_cnf.get("host", "localhost")) as queue:
-        result = [message if (message.topic.decode(queue_cnf.get("encoding",'utf-8')) == operation and message.offet.decode(queue_cnf.get("encoding",'utf-8')) == offset) else '' for message in queue]
-        result = filter(lambda x: x, result)
-        if len(result) == 0:
-            return {}
-        else:
-            res = result[0]
-            if res_secret == secret:
-                return res['_status'].decode(queue_cnf.get("encoding",'utf-8'))
-            else:
-                return {}
-
-"""
-Get from queue iff key matches
-"""
-# TODO
 def q_get(operation, offset, secret):
     with kafka.KafkaConsumer(operation,
                          bootstrap_servers=queue_cnf.get("host", "localhost")) as queue:
@@ -62,7 +43,7 @@ def q_get(operation, offset, secret):
             if res_secret == secret:
                 return res
             else:
-                return {}
+                return res['_status'].decode(queue_cnf.get("encoding",'utf-8'))
 
 # Routes
 routes = flask.Flask(__name__)
@@ -82,7 +63,7 @@ output: {'status': status}
 """
 @routes.route("/status/task/<operation>/<offset>")
 def taskstatus(operation, offset):
-    return q_status(operation, offset)
+    return json.dumps(q_get(operation, offset))
 
 """
 Get task result
